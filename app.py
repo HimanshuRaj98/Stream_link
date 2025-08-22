@@ -172,7 +172,8 @@ class StreamlinkDownloader(BaseUI):
                     state = stream['state']
                     delay = stream['delay']
                     restart_time = stream.get('restart_seconds', 0)
-                    self.main_tab.tree.item(item, values=(state, delay, restart_time), tags=(state,))
+                    retry_count = stream.get('retry_count', 0)
+                    self.main_tab.tree.item(item, values=(state, delay, restart_time, retry_count), tags=(state,))
                     break
 
     def refresh_streams(self):

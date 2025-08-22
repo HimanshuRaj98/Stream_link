@@ -50,7 +50,10 @@ class DownloaderCore:
             'state': 'Stopped',
             'delay': delay,
             'restart_timer': None,
-            'restart_seconds': 0
+            'restart_seconds': 0,
+            'retry_count': 0,
+            'last_error_time': None,
+            'backoff_level': 0
         }
         self.log(f"Added stream: {name}")
         return True
@@ -133,6 +136,63 @@ class DownloaderCore:
         self.compression_crf = crf
         self.compression_audio_bitrate = audio_bitrate
         self.log(f"Compression settings updated: enabled={enabled}, preset={preset}, crf={crf}, audio={audio_bitrate}")
+
+    def calculate_retry_delay(self, name):
+        """Calculate dynamic retry delay based on error pattern"""
+        stream = self.streams[name]
+        retry_count = stream['retry_count']
+        
+        # Progressive backoff schedule
+        backoff_schedule = [30, 60, 120, 300, 600, 1800]  # 30s, 1m, 2m, 5m, 10m, 30m
+        max_backoff = 1800  # 30 minutes max
+        
+        if retry_count < len(backoff_schedule):
+            base_delay = backoff_schedule[retry_count]
+        else:
+            base_delay = max_backoff
+        
+        # Add random jitter (±10% of base delay)
+        import random
+        jitter = random.uniform(-0.1, 0.1) * base_delay
+        final_delay = max(5, base_delay + jitter)  # Minimum 5 seconds
+        
+        return int(final_delay)
+
+    def reset_retry_count(self, name):
+        """Reset retry count when stream starts successfully"""
+        if name in self.streams:
+            self.streams[name]['retry_count'] = 0
+            self.streams[name]['backoff_level'] = 0
+            self.log(f"Reset retry count for {name}")
+
+    def schedule_restart(self, name, is_error_retry=False):
+        """Schedule restart with dynamic delay"""
+        if is_error_retry:
+            # Error-based retry with progressive backoff
+            delay_seconds = self.calculate_retry_delay(name)
+            self.streams[name]['retry_count'] += 1
+            self.log(f"Scheduling error retry for {name} in {delay_seconds}s (attempt {self.streams[name]['retry_count']})")
+        else:
+            # Normal scheduled restart
+            delay_seconds = self.streams[name]['delay'] * 60
+            self.log(f"Scheduling normal restart for {name} in {delay_seconds}s")
+        
+        self.streams[name]['restart_seconds'] = delay_seconds
+        self.streams[name]['state'] = 'Restarting'
+        self.update_tree_item(name)
+
+        def countdown():
+            if name not in self.streams or self.streams[name]['state'] != 'Restarting':
+                return
+            self.streams[name]['restart_seconds'] -= 1
+            self.update_tree_item(name)
+            if self.streams[name]['restart_seconds'] <= 0:
+                self._start_stream_internal(name)
+            else:
+                self.streams[name]['restart_timer'] = threading.Timer(1, countdown)
+                self.streams[name]['restart_timer'].start()
+
+        countdown()
 
     def _start_stream_internal(self, name):
         """Actual start & monitoring logic"""
@@ -248,15 +308,21 @@ class DownloaderCore:
                 if return_code == 0:
                     self.log_streamlink(f"[{name}] Download completed successfully")
                     self.log(f"Download completed: {name}")
+                    # Reset retry count on successful completion
+                    self.reset_retry_count(name)
                 else:
                     self.log_streamlink(f"[{name}] Download failed - code: {return_code}")
                     self.log(f"Download failed: {name} (code: {return_code})")
+                    # Schedule error retry with progressive backoff
+                    if self.streams[name]['delay'] > 0:
+                        self.schedule_restart(name, is_error_retry=True)
 
                 self.streams[name]['state'] = 'Stopped'
                 self.streams[name]['process'] = None
                 self.update_tree_item(name)
 
-                if self.streams[name]['delay'] > 0:
+                # Only schedule normal restart if not already scheduled for error retry
+                if self.streams[name]['delay'] > 0 and return_code == 0:
                     self.schedule_restart(name)
 
             except Exception as e:
@@ -269,25 +335,7 @@ class DownloaderCore:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def schedule_restart(self, name):
-        """Countdown before restarting a stream"""
-        delay_seconds = self.streams[name]['delay'] * 60
-        self.streams[name]['restart_seconds'] = delay_seconds
-        self.streams[name]['state'] = 'Restarting'
-        self.update_tree_item(name)
 
-        def countdown():
-            if name not in self.streams or self.streams[name]['state'] != 'Restarting':
-                return
-            self.streams[name]['restart_seconds'] -= 1
-            self.update_tree_item(name)
-            if self.streams[name]['restart_seconds'] <= 0:
-                self._start_stream_internal(name)
-            else:
-                self.streams[name]['restart_timer'] = threading.Timer(1, countdown)
-                self.streams[name]['restart_timer'].start()
-
-        countdown()
 
     def check_streamlink_available(self):
         """Check if Streamlink CLI is installed and accessible"""

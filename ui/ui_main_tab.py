@@ -297,7 +297,7 @@ class MainTab:
         tree_container.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
         self.tree = self.components.create_styled_treeview(
-            tree_container, columns=('State', 'Delay', 'Restart')
+            tree_container, columns=('State', 'Delay', 'Restart', 'Retries')
         )
         
         # Configure headers with sorting
@@ -309,12 +309,15 @@ class MainTab:
                          command=lambda: self.sort_tree_column('Delay', False))
         self.tree.heading('Restart', text='🔄 Restart (s)',
                          command=lambda: self.sort_tree_column('Restart', False))
+        self.tree.heading('Retries', text='🔄 Retries',
+                         command=lambda: self.sort_tree_column('Retries', False))
 
         # Configure columns
-        self.tree.column('#0', width=250)
-        self.tree.column('State', width=100)
-        self.tree.column('Delay', width=100)
-        self.tree.column('Restart', width=100)
+        self.tree.column('#0', width=200)
+        self.tree.column('State', width=80)
+        self.tree.column('Delay', width=80)
+        self.tree.column('Restart', width=80)
+        self.tree.column('Retries', width=60)
 
         # Configure tags for state colors
         self.tree.tag_configure('Running', foreground='white', 
@@ -459,7 +462,7 @@ class MainTab:
             
             if self.downloader.add_stream(name, url, delay):
                 self.tree.insert('', 'end', text=name, 
-                               values=('Stopped', delay, '0'), 
+                               values=('Stopped', delay, '0', '0'), 
                                tags=('Stopped',))
                 added_count += 1
 
@@ -490,7 +493,7 @@ class MainTab:
             # Sort items
             if col == '#0':  # Name column
                 items.sort(key=lambda x: x[0].lower(), reverse=reverse)
-            elif col in ['Delay', 'Restart']:  # Numeric columns
+            elif col in ['Delay', 'Restart', 'Retries']:  # Numeric columns
                 items.sort(key=lambda x: float(x[0]) if x[0].replace('.', '').isdigit() else 0, reverse=reverse)
             else:  # String columns
                 items.sort(key=lambda x: x[0].lower(), reverse=reverse)
@@ -652,7 +655,7 @@ class MainTab:
                     
                     self.downloader.add_stream(name, url, delay)
                     self.tree.insert('', 'end', text=name, 
-                                   values=('Stopped', delay, '0'), 
+                                   values=('Stopped', delay, '0', '0'), 
                                    tags=('Stopped',))
 
                 self.logger.log_to_console(f"Download list loaded from {file_path}")
@@ -663,8 +666,8 @@ class MainTab:
         """Sort tree by column"""
         data = [(self.tree.set(child, col), child) for child in self.tree.get_children('')]
         
-        # Handle numeric sorting for delay and restart columns
-        if col in ('Delay', 'Restart'):
+        # Handle numeric sorting for delay, restart, and retries columns
+        if col in ('Delay', 'Restart', 'Retries'):
             data.sort(key=lambda x: float(x[0]) if x[0].replace('.', '').isdigit() else 0, reverse=reverse)
         else:
             data.sort(reverse=reverse)
@@ -798,7 +801,7 @@ class MainTab:
             
             if self.downloader.add_stream(name, url, delay):
                 self.tree.insert('', 'end', text=name, 
-                               values=('Stopped', delay, '0'), 
+                               values=('Stopped', delay, '0', '0'), 
                                tags=('Stopped',))
 
     def on_tree_double_click(self, event):

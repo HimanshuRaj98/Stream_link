@@ -117,6 +117,9 @@ class StreamlinkDownloader(BaseUI):
         self.log_tab = LogTab(self.log_tab_frame, self, self.logger)
         self.csv_tools_tab = CSVToolsTab(self.csv_tools_tab_frame, self, self.csv_tools, self.video_tools)
         self.settings_tab = SettingsTab(self.settings_tab_frame, self, self.logger)
+        
+        # Make settings tab accessible to main tab for auto-start functionality
+        self.main_tab.settings_tab = self.settings_tab
 
     def create_title_bar(self, parent):
         """Create title bar with enhanced styling"""

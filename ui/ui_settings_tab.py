@@ -271,13 +271,54 @@ class SettingsTab:
 
     # Event handlers
     def toggle_dark_mode(self):
-        """Toggle dark mode (placeholder)"""
+        """Toggle dark mode with live application"""
         if self.dark_mode.get():
-            self.logger.log_to_console("Dark mode enabled (requires restart)")
-            messagebox.showinfo("Dark Mode", "Dark mode will be applied after restart")
+            AeroStyle.set_theme('dark')
+            self.logger.log_to_console("Dark mode enabled")
+            self.apply_theme_to_ui()
         else:
-            self.logger.log_to_console("Light mode enabled (requires restart)")
-            messagebox.showinfo("Light Mode", "Light mode will be applied after restart")
+            AeroStyle.set_theme('light')
+            self.logger.log_to_console("Light mode enabled")
+            self.apply_theme_to_ui()
+
+    def apply_theme_to_ui(self):
+        """Apply current theme to all UI elements"""
+        try:
+            # Update main window background
+            self.base_ui.root.configure(bg=AeroStyle.BACKGROUND)
+            
+            # Update all frames and widgets recursively
+            self.update_widget_colors(self.base_ui.root)
+            
+            # Reconfigure styles
+            self.base_ui.setup_styles()
+            
+            self.logger.log_to_console(f"Theme applied: {AeroStyle.get_current_theme()}")
+        except Exception as e:
+            self.logger.log_to_console(f"Error applying theme: {e}")
+
+    def update_widget_colors(self, widget):
+        """Recursively update widget colors"""
+        try:
+            # Update widget background if it's a frame-like widget
+            if hasattr(widget, 'configure'):
+                try:
+                    widget.configure(bg=AeroStyle.GLASS_BACKGROUND)
+                except:
+                    pass
+                
+                # Update text color for labels and buttons
+                try:
+                    widget.configure(fg=AeroStyle.TEXT_COLOR)
+                except:
+                    pass
+            
+            # Update children
+            for child in widget.winfo_children():
+                self.update_widget_colors(child)
+        except Exception as e:
+            # Ignore errors for widgets that don't support color changes
+            pass
 
     def preview_theme(self):
         """Preview current theme"""

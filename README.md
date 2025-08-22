@@ -95,6 +95,16 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
 - **FFmpeg Integration**: Uses FFmpeg for high-quality compression
 - **UI Controls**: Easy-to-use compression controls in the main interface
 
+### **Recent Bug Fixes & Features:**
+- **✅ Fixed**: Compression options now remain visible when CSV is loaded
+- **✅ Fixed**: Tree view sorting now works properly for all columns
+- **✅ Fixed**: Theme switching now applies immediately without restart
+- **✅ Fixed**: Auto-start streams now work when enabled in settings
+- **✅ Added**: Right-click context menus for both trees
+- **✅ Added**: Copy/paste functionality for stream names and URLs
+- **✅ Added**: Right-click paste in search box with context menu
+- **✅ Added**: Dynamic theme system with live switching
+
 ## **Recommendations**
 
 ### **Immediate Improvements:**

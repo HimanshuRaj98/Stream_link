@@ -40,7 +40,7 @@ class MainTab:
 
         # Left side controls
         left_controls = tk.Frame(top_controls, bg=AeroStyle.GLASS_BACKGROUND)
-        left_controls.pack(side='left')
+        left_controls.pack(side='left', fill='x', expand=True)
 
         self.components.create_gradient_button(
             left_controls, "📁 Load CSV", self.load_csv, 'primary'
@@ -67,7 +67,7 @@ class MainTab:
             center_controls, "📁 Show Folder", self.show_output_folder
         ).pack(side='left', padx=5)
 
-        # Right side controls
+        # Right side controls - ensure they stay visible
         self.create_right_controls(top_controls)
 
     def create_right_controls(self, parent):
@@ -146,7 +146,7 @@ class MainTab:
                             bg=AeroStyle.GLASS_BACKGROUND,
                             fg=AeroStyle.TEXT_COLOR,
                             highlightthickness=0,
-                            length=80,
+                            length=60,
                             showvalue=True,
                             font=('Segoe UI', 8))
         crf_scale.pack(side='left', padx=2)
@@ -193,6 +193,15 @@ class MainTab:
             search_controls, textvariable=self.base_ui.search_var, width=35
         )
         search_entry.pack(side='left', padx=10)
+        
+        # Add right-click paste functionality to search entry
+        search_entry.bind('<Button-3>', self.show_search_context_menu)
+        
+        # Create search context menu
+        self.search_context_menu = tk.Menu(search_entry, tearoff=0)
+        self.search_context_menu.add_command(label="📋 Paste", command=lambda: self.paste_to_search(search_entry))
+        self.search_context_menu.add_command(label="📋 Copy", command=lambda: self.copy_from_search(search_entry))
+        self.search_context_menu.add_command(label="✂️ Cut", command=lambda: self.cut_from_search(search_entry))
 
         # Action buttons
         self.create_action_buttons(search_controls)
@@ -326,7 +335,8 @@ class MainTab:
         self.tree.bind('<Button-3>', self.show_context_menu)
         self.tree.bind('<Double-1>', self.on_tree_double_click)
 
-        # Create context menu
+        # Create context menus
+        self.create_context_menus()
         self.create_context_menu()
 
     def create_context_menu(self):
@@ -455,12 +465,45 @@ class MainTab:
 
         if added_count > 0:
             self.logger.log_to_console(f"Added {added_count} streams to download list")
+            
+            # Auto-start streams if enabled
+            if hasattr(self, 'settings_tab') and self.settings_tab.auto_start.get():
+                self.logger.log_to_console("Auto-start enabled - starting streams automatically")
+                # Start all newly added streams
+                for item in selected:
+                    name = self.csv_tree.item(item)['text']
+                    if name in self.downloader.streams:
+                        self.downloader.start_stream(name)
 
     def update_compression_controls(self):
         """Update compression control states based on checkbox"""
         # This method can be used to enable/disable compression controls
         # based on the checkbox state if needed
         pass
+
+    def sort_tree_column(self, col, reverse):
+        """Sort tree by column"""
+        try:
+            # Get all items from the tree
+            items = [(self.tree.set(item, col), item) for item in self.tree.get_children('')]
+            
+            # Sort items
+            if col == '#0':  # Name column
+                items.sort(key=lambda x: x[0].lower(), reverse=reverse)
+            elif col in ['Delay', 'Restart']:  # Numeric columns
+                items.sort(key=lambda x: float(x[0]) if x[0].replace('.', '').isdigit() else 0, reverse=reverse)
+            else:  # String columns
+                items.sort(key=lambda x: x[0].lower(), reverse=reverse)
+            
+            # Rearrange items in sorted positions
+            for index, (val, item) in enumerate(items):
+                self.tree.move(item, '', index)
+            
+            # Reverse sort next time
+            self.tree.heading(col, command=lambda: self.sort_tree_column(col, not reverse))
+            
+        except Exception as e:
+            self.logger.log_to_console(f"Error sorting column {col}: {e}")
 
     def create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""
@@ -632,12 +675,118 @@ class MainTab:
         # Toggle sort direction for next click
         self.tree.heading(col, command=lambda: self.sort_tree_column(col, not reverse))
 
+    def create_context_menus(self):
+        """Create context menus for trees"""
+        # Context menu for download tree
+        self.download_context_menu = tk.Menu(self.tree, tearoff=0)
+        self.download_context_menu.add_command(label="▶️ Start", command=self.start_stream)
+        self.download_context_menu.add_command(label="⏹️ Stop", command=self.stop_stream)
+        self.download_context_menu.add_command(label="🔄 Restart", command=self.restart_stream)
+        self.download_context_menu.add_separator()
+        self.download_context_menu.add_command(label="🗑️ Remove", command=self.remove_stream)
+        self.download_context_menu.add_separator()
+        self.download_context_menu.add_command(label="📋 Copy Name", command=self.copy_stream_name)
+        self.download_context_menu.add_command(label="🔗 Copy URL", command=self.copy_stream_url)
+
+        # Context menu for CSV tree
+        self.csv_context_menu = tk.Menu(self.csv_tree, tearoff=0)
+        self.csv_context_menu.add_command(label="➕ Add to Downloads", command=self.add_selected)
+        self.csv_context_menu.add_separator()
+        self.csv_context_menu.add_command(label="📋 Copy Name", command=self.copy_csv_name)
+        self.csv_context_menu.add_command(label="🔗 Copy URL", command=self.copy_csv_url)
+
+        # Bind right-click to CSV tree
+        self.csv_tree.bind('<Button-3>', self.show_csv_context_menu)
+
     def show_context_menu(self, event):
-        """Show context menu on right-click"""
+        """Show context menu on right-click for download tree"""
         try:
-            self.context_menu.tk_popup(event.x_root, event.y_root)
+            self.download_context_menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.context_menu.grab_release()
+            self.download_context_menu.grab_release()
+
+    def show_csv_context_menu(self, event):
+        """Show context menu on right-click for CSV tree"""
+        try:
+            self.csv_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.csv_context_menu.grab_release()
+
+    def copy_stream_name(self):
+        """Copy selected stream name to clipboard"""
+        selected = self.tree.selection()
+        if selected:
+            name = self.tree.item(selected[0])['text']
+            self.base_ui.root.clipboard_clear()
+            self.base_ui.root.clipboard_append(name)
+            self.logger.log_to_console(f"Copied stream name: {name}")
+
+    def copy_stream_url(self):
+        """Copy selected stream URL to clipboard"""
+        selected = self.tree.selection()
+        if selected:
+            name = self.tree.item(selected[0])['text']
+            if name in self.downloader.streams:
+                url = self.downloader.streams[name]['url']
+                self.base_ui.root.clipboard_clear()
+                self.base_ui.root.clipboard_append(url)
+                self.logger.log_to_console(f"Copied stream URL: {url}")
+
+    def copy_csv_name(self):
+        """Copy selected CSV stream name to clipboard"""
+        selected = self.csv_tree.selection()
+        if selected:
+            name = self.csv_tree.item(selected[0])['text']
+            self.base_ui.root.clipboard_clear()
+            self.base_ui.root.clipboard_append(name)
+            self.logger.log_to_console(f"Copied CSV name: {name}")
+
+    def copy_csv_url(self):
+        """Copy selected CSV stream URL to clipboard"""
+        selected = self.csv_tree.selection()
+        if selected:
+            url = self.csv_tree.item(selected[0])['values'][0]
+            self.base_ui.root.clipboard_clear()
+            self.base_ui.root.clipboard_append(url)
+            self.logger.log_to_console(f"Copied CSV URL: {url}")
+
+    def show_search_context_menu(self, event):
+        """Show context menu for search entry"""
+        try:
+            self.search_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.search_context_menu.grab_release()
+
+    def paste_to_search(self, entry_widget):
+        """Paste clipboard content to search entry"""
+        try:
+            clipboard_content = self.base_ui.root.clipboard_get()
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, clipboard_content)
+            self.logger.log_to_console("Pasted content to search box")
+        except Exception as e:
+            self.logger.log_to_console(f"Error pasting to search: {e}")
+
+    def copy_from_search(self, entry_widget):
+        """Copy search entry content to clipboard"""
+        try:
+            content = entry_widget.get()
+            self.base_ui.root.clipboard_clear()
+            self.base_ui.root.clipboard_append(content)
+            self.logger.log_to_console("Copied search content to clipboard")
+        except Exception as e:
+            self.logger.log_to_console(f"Error copying from search: {e}")
+
+    def cut_from_search(self, entry_widget):
+        """Cut search entry content to clipboard"""
+        try:
+            content = entry_widget.get()
+            self.base_ui.root.clipboard_clear()
+            self.base_ui.root.clipboard_append(content)
+            entry_widget.delete(0, tk.END)
+            self.logger.log_to_console("Cut search content to clipboard")
+        except Exception as e:
+            self.logger.log_to_console(f"Error cutting from search: {e}")
 
     def on_csv_double_click(self, event):
         """Handle double-click on CSV tree"""

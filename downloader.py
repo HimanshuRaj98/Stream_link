@@ -189,7 +189,8 @@ class DownloaderCore:
             if self.streams[name]['restart_seconds'] <= 0:
                 self._start_stream_internal(name)
             else:
-                self.streams[name]['restart_timer'] = threading.Timer(1, countdown)
+                # Use a shorter timer interval for more responsive UI updates
+                self.streams[name]['restart_timer'] = threading.Timer(0.5, countdown)
                 self.streams[name]['restart_timer'].start()
 
         countdown()
@@ -197,6 +198,9 @@ class DownloaderCore:
     def _start_stream_internal(self, name):
         """Actual start & monitoring logic"""
         def run():
+            # Reset restart seconds counter when starting a stream
+            self.streams[name]['restart_seconds'] = 0
+            self.update_tree_item(name)
             try:
                 url = self.streams[name]['url']
                 quality = self.selected_quality
@@ -313,9 +317,9 @@ class DownloaderCore:
                 else:
                     self.log_streamlink(f"[{name}] Download failed - code: {return_code}")
                     self.log(f"Download failed: {name} (code: {return_code})")
-                    # Schedule error retry with progressive backoff
-                    if self.streams[name]['delay'] > 0:
-                        self.schedule_restart(name, is_error_retry=True)
+                    # Always schedule error retry with progressive backoff regardless of delay setting
+                    # This ensures streams always retry on error even if normal restart is disabled
+                    self.schedule_restart(name, is_error_retry=True)
 
                 self.streams[name]['state'] = 'Stopped'
                 self.streams[name]['process'] = None

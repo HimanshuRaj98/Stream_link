@@ -503,11 +503,14 @@ class MainTab:
         """Sort tree by column"""
         try:
             # Get all items from the tree
-            items = [(self.tree.set(item, col), item) for item in self.tree.get_children('')]
+            if col == '#0':  # Name column - special handling for text attribute
+                items = [(self.tree.item(item)['text'].lower(), item) for item in self.tree.get_children('')]
+            else:  # Other columns use the set values
+                items = [(self.tree.set(item, col), item) for item in self.tree.get_children('')]
             
             # Sort items
             if col == '#0':  # Name column
-                items.sort(key=lambda x: x[0].lower(), reverse=reverse)
+                items.sort(key=lambda x: x[0], reverse=reverse)  # Already lowercase from above
             elif col in ['Delay', 'Restart', 'Retries']:  # Numeric columns
                 items.sort(key=lambda x: float(x[0]) if x[0].replace('.', '').isdigit() else 0, reverse=reverse)
             else:  # String columns

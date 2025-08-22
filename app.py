@@ -160,8 +160,11 @@ class StreamlinkDownloader(BaseUI):
         self.root.bind('<Control-o>', lambda e: self.main_tab.load_csv())
         self.root.bind('<Control-s>', lambda e: self.main_tab.save_download_list())
         self.root.bind('<Control-l>', lambda e: self.main_tab.load_download_list())
-        self.root.bind('<F5>', lambda e: self.refresh_streams())
+        self.root.bind('<F5>', lambda e: None)  # Disable manual refresh as it's now automatic
         self.root.bind('<Delete>', lambda e: self.handlers.remove_stream())
+        
+        # Start the automatic refresh timer
+        self.root.after(500, self.refresh_streams)
 
     def update_tree_item(self, name):
         """Update tree item display for a stream"""
@@ -180,6 +183,9 @@ class StreamlinkDownloader(BaseUI):
         """Refresh stream display"""
         for name in self.downloader.streams:
             self.update_tree_item(name)
+        
+        # Schedule next refresh for real-time updates
+        self.root.after(500, self.refresh_streams)
 
     def run(self):
         """Start the main application loop"""

@@ -1,0 +1,18 @@
+# Streamlink Downloader - Aero Edition
+# Core dependencies
+streamlink>=5.0.0
+pandas>=1.5.0
+
+# Optional dependencies for compression feature
+# FFmpeg must be installed separately and available in system PATH
+# Download from: https://ffmpeg.org/download.html
+
+# Development dependencies (optional)
+# tkinter (usually comes with Python)
+# subprocess (built-in)
+# threading (built-in)
+# os (built-in)
+# time (built-in)
+# datetime (built-in)
+# csv (built-in)
+# json (built-in)

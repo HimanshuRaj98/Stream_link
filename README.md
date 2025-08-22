@@ -22,6 +22,7 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
    - Stream management with start/stop/restart capabilities
    - CSV import/export functionality
    - Video merging tools using FFmpeg
+   - Real-time compression during download to reduce file sizes
    - Real-time logging and status updates
    - Search and filtering capabilities
 
@@ -63,6 +64,7 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
    - Handles Streamlink integration
    - Manages stream states and processes
    - Implements restart logic with delays
+   - Supports real-time compression using FFmpeg
 
 2. **CSVTools** (`csv_tools.py`)
    - CSV merging and deduplication
@@ -83,6 +85,15 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
 - **BaseUI**: Foundation with window setup and styling
 - **Tabbed Interface**: Main, Log, CSV Tools, Settings
 - **AeroComponents**: Reusable UI components with consistent styling
+
+### **Compression Feature:**
+- **Real-time Compression**: Compress videos during download to reduce file sizes
+- **Configurable Settings**: 
+  - Preset: ultrafast to veryslow (speed vs quality trade-off)
+  - CRF: 18-28 (18-23 for high quality, 24-28 for smaller files)
+  - Audio bitrate: Configurable audio compression
+- **FFmpeg Integration**: Uses FFmpeg for high-quality compression
+- **UI Controls**: Easy-to-use compression controls in the main interface
 
 ## **Recommendations**
 

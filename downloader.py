@@ -26,6 +26,12 @@ class DownloaderCore:
         self.output_folder = os.path.join(os.path.expanduser("~"), "Documents", "YTS", "M3U8")
         os.makedirs(self.output_folder, exist_ok=True)
         self.selected_quality = "best"
+        
+        # Compression settings
+        self.compression_enabled = False
+        self.compression_preset = "medium"  # ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
+        self.compression_crf = 23  # 0-51, lower = better quality, higher = smaller file
+        self.compression_audio_bitrate = "128k"  # Audio bitrate for compression
 
     def add_stream(self, name, url, delay=1, test_url_callback=None):
         """Add a stream to the active downloads list"""
@@ -60,6 +66,9 @@ class DownloaderCore:
         if not self.check_streamlink_available():
             self.log("Streamlink not available.")
             return
+        if self.compression_enabled and not self.check_ffmpeg_available():
+            self.log("Compression enabled but FFmpeg not available. Please install FFmpeg.")
+            return
         self._start_stream_internal(name)
 
     def stop_stream(self, name):
@@ -76,6 +85,20 @@ class DownloaderCore:
         if proc:
             try:
                 self.log_streamlink(f"[{name}] Terminating process...")
+                
+                # Stop streamlink process if compression is enabled
+                if self.compression_enabled and 'streamlink_proc' in self.streams[name]:
+                    streamlink_proc = self.streams[name]['streamlink_proc']
+                    try:
+                        streamlink_proc.terminate()
+                        streamlink_proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        streamlink_proc.kill()
+                        streamlink_proc.wait()
+                    except Exception as e:
+                        self.log_streamlink(f"[{name}] Error stopping streamlink: {e}")
+                
+                # Stop main process
                 proc.terminate()
                 try:
                     proc.wait(timeout=5)
@@ -103,6 +126,14 @@ class DownloaderCore:
         self.streams[name]['delay'] = max(0, delay)
         self.update_tree_item(name)
 
+    def set_compression_settings(self, enabled, preset="medium", crf=23, audio_bitrate="128k"):
+        """Set compression settings"""
+        self.compression_enabled = enabled
+        self.compression_preset = preset
+        self.compression_crf = crf
+        self.compression_audio_bitrate = audio_bitrate
+        self.log(f"Compression settings updated: enabled={enabled}, preset={preset}, crf={crf}, audio={audio_bitrate}")
+
     def _start_stream_internal(self, name):
         """Actual start & monitoring logic"""
         def run():
@@ -118,21 +149,68 @@ class DownloaderCore:
 
                 self.log(f"Starting stream: {name} -> {output}")
                 self.log_streamlink(f"[{name}] Starting download with quality: {quality}")
+                
+                if self.compression_enabled:
+                    self.log_streamlink(f"[{name}] Compression enabled: preset={self.compression_preset}, crf={self.compression_crf}")
+                    # Use FFmpeg for real-time compression
+                    cmd = [
+                        'streamlink', '--loglevel', 'info', '--force',
+                        '--retry-streams', '3', '--retry-max', '3',
+                        '--stdout', url, quality
+                    ]
+                    # Pipe to FFmpeg for compression
+                    ffmpeg_cmd = [
+                        'ffmpeg', '-i', 'pipe:0',
+                        '-c:v', 'libx264', '-preset', self.compression_preset,
+                        '-crf', str(self.compression_crf),
+                        '-c:a', 'aac', '-b:a', self.compression_audio_bitrate,
+                        '-y', output
+                    ]
+                    self.log_streamlink(f"[{name}] FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                else:
+                    # Standard download without compression
+                    cmd = [
+                        'streamlink', '--loglevel', 'info', '--force',
+                        '--retry-streams', '3', '--retry-max', '3',
+                        url, quality, '-o', output
+                    ]
 
-                cmd = [
-                    'streamlink', '--loglevel', 'info', '--force',
-                    '--retry-streams', '3', '--retry-max', '3',
-                    url, quality, '-o', output
-                ]
-
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
+                if self.compression_enabled:
+                    # Create piped process: streamlink | ffmpeg
+                    streamlink_proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                    
+                    ffmpeg_proc = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdin=streamlink_proc.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                    
+                    # Close streamlink stdout in parent process
+                    streamlink_proc.stdout.close()
+                    
+                    # Use ffmpeg process as main process
+                    proc = ffmpeg_proc
+                    self.streams[name]['streamlink_proc'] = streamlink_proc
+                else:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
 
                 self.streams[name]['process'] = proc
                 self.streams[name]['state'] = 'Running'
@@ -146,6 +224,16 @@ class DownloaderCore:
                                 self.log_streamlink(f"[{name}] {line.strip()}")
                             else:
                                 time.sleep(0.1)
+                        
+                        # Log stderr for compression mode
+                        if self.compression_enabled and hasattr(self.streams[name], 'streamlink_proc'):
+                            streamlink_proc = self.streams[name]['streamlink_proc']
+                            if streamlink_proc.stderr:
+                                streamlink_stderr = streamlink_proc.stderr.read()
+                                if streamlink_stderr:
+                                    for line in streamlink_stderr.splitlines():
+                                        self.log_streamlink(f"[{name}] [Streamlink] {line.strip()}")
+                        
                         # flush remaining output
                         remaining_output = proc.stdout.read()
                         if remaining_output:
@@ -214,6 +302,21 @@ class DownloaderCore:
                 return False
         except Exception as e:
             self.log(f"Error checking Streamlink: {e}")
+            return False
+
+    def check_ffmpeg_available(self):
+        """Check if FFmpeg is installed and accessible"""
+        try:
+            result = subprocess.run(['ffmpeg', '-version'],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                self.log(f"FFmpeg available: {result.stdout.split()[2]}")
+                return True
+            else:
+                self.log("FFmpeg not working properly")
+                return False
+        except Exception as e:
+            self.log(f"Error checking FFmpeg: {e}")
             return False
 
     def update_download_progress(self, name, output_file):

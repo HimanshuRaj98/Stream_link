@@ -59,6 +59,14 @@ class StreamlinkDownloader(BaseUI):
         )
         self.downloader.output_folder = self.output_folder
         self.downloader.selected_quality = self.selected_quality.get()
+        
+        # Initialize compression settings
+        self.downloader.set_compression_settings(
+            enabled=self.compression_enabled.get(),
+            preset=self.compression_preset.get(),
+            crf=self.compression_crf.get(),
+            audio_bitrate=self.compression_audio_bitrate.get()
+        )
 
         # Initialize CSV tools
         self.csv_tools = CSVTools(

@@ -25,6 +25,12 @@ class BaseUI:
         self.sort_column = None
         self.sort_reverse = False
         
+        # Compression variables
+        self.compression_enabled = tk.BooleanVar(value=False)
+        self.compression_preset = tk.StringVar(value="medium")
+        self.compression_crf = tk.IntVar(value=23)
+        self.compression_audio_bitrate = tk.StringVar(value="128k")
+        
         # CSV Tools variables
         self.main_file_path = tk.StringVar()
         self.source_file_path = tk.StringVar()

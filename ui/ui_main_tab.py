@@ -102,6 +102,66 @@ class MainTab:
                                    state='readonly')
         quality_combo.pack(side='left', padx=5)
 
+        # Compression controls
+        compression_frame = tk.Frame(right_controls, bg=AeroStyle.GLASS_BACKGROUND)
+        compression_frame.pack(side='left', padx=15)
+
+        # Compression checkbox
+        compression_check = tk.Checkbutton(
+            compression_frame,
+            text="🗜️ Compress",
+            variable=self.base_ui.compression_enabled,
+            bg=AeroStyle.GLASS_BACKGROUND,
+            fg=AeroStyle.TEXT_COLOR,
+            selectcolor=AeroStyle.ACCENT_LIGHT_BLUE,
+            font=('Segoe UI', 9),
+            command=self.update_compression_controls
+        )
+        compression_check.pack(side='left')
+
+        # Compression preset
+        preset_frame = tk.Frame(compression_frame, bg=AeroStyle.GLASS_BACKGROUND)
+        preset_frame.pack(side='left', padx=5)
+
+        self.components.create_styled_label(preset_frame, "Preset:").pack(side='left')
+
+        preset_combo = ttk.Combobox(preset_frame,
+                                   textvariable=self.base_ui.compression_preset,
+                                   values=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"],
+                                   width=8,
+                                   style='Aero.TCombobox',
+                                   state='readonly')
+        preset_combo.pack(side='left', padx=2)
+
+        # CRF slider frame
+        crf_frame = tk.Frame(compression_frame, bg=AeroStyle.GLASS_BACKGROUND)
+        crf_frame.pack(side='left', padx=5)
+
+        self.components.create_styled_label(crf_frame, "CRF:").pack(side='left')
+
+        crf_scale = tk.Scale(crf_frame,
+                            from_=18, to=28,
+                            orient='horizontal',
+                            variable=self.base_ui.compression_crf,
+                            bg=AeroStyle.GLASS_BACKGROUND,
+                            fg=AeroStyle.TEXT_COLOR,
+                            highlightthickness=0,
+                            length=80,
+                            showvalue=True,
+                            font=('Segoe UI', 8))
+        crf_scale.pack(side='left', padx=2)
+
+        # Compression info tooltip
+        info_label = self.components.create_styled_label(
+            compression_frame, "ℹ️", 'secondary'
+        )
+        info_label.pack(side='left', padx=5)
+        self.create_tooltip(info_label, 
+            "Compression reduces file size during download:\n"
+            "• Preset: Speed vs quality trade-off\n"
+            "• CRF: 18-23 (high quality), 24-28 (smaller files)\n"
+            "• Requires FFmpeg to be installed")
+
     def create_output_display(self):
         """Create output folder display"""
         output_frame = self.components.create_glass_frame(self.parent)
@@ -396,6 +456,32 @@ class MainTab:
         if added_count > 0:
             self.logger.log_to_console(f"Added {added_count} streams to download list")
 
+    def update_compression_controls(self):
+        """Update compression control states based on checkbox"""
+        # This method can be used to enable/disable compression controls
+        # based on the checkbox state if needed
+        pass
+
+    def create_tooltip(self, widget, text):
+        """Create a tooltip for a widget"""
+        def show_tooltip(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            label = tk.Label(tooltip, text=text, justify='left',
+                           background="#ffffe0", relief='solid', borderwidth=1,
+                           font=("Segoe UI", 8))
+            label.pack()
+            
+            def hide_tooltip(event):
+                tooltip.destroy()
+            
+            widget.bind('<Leave>', hide_tooltip)
+            tooltip.bind('<Leave>', hide_tooltip)
+        
+        widget.bind('<Enter>', show_tooltip)
+
     def start_stream(self):
         """Start selected streams"""
         selected = self.tree.selection()
@@ -405,6 +491,14 @@ class MainTab:
 
         # Update quality setting
         self.downloader.selected_quality = self.base_ui.selected_quality.get()
+        
+        # Update compression settings
+        self.downloader.set_compression_settings(
+            enabled=self.base_ui.compression_enabled.get(),
+            preset=self.base_ui.compression_preset.get(),
+            crf=self.base_ui.compression_crf.get(),
+            audio_bitrate=self.base_ui.compression_audio_bitrate.get()
+        )
 
         for item in selected:
             name = self.tree.item(item)['text']

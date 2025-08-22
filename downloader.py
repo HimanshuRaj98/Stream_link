@@ -49,11 +49,12 @@ class DownloaderCore:
             'process': None,
             'state': 'Stopped',
             'delay': delay,
-            'restart_timer': None,
+            'restart_timer': None,  # Will be set when scheduling restart
             'restart_seconds': 0,
             'retry_count': 0,
             'last_error_time': None,
-            'backoff_level': 0
+            'backoff_level': 0,
+            'auto_restart': True  # Enable automatic restart on errors
         }
         self.log(f"Added stream: {name}")
         return True
@@ -64,25 +65,44 @@ class DownloaderCore:
 
     def start_stream(self, name):
         """Start a single stream"""
+        if name not in self.streams:
+            self.log(f"Cannot start {name}: stream not found")
+            return
+            
         if self.streams[name]['state'] == 'Running':
             return
+            
         if not self.check_streamlink_available():
             self.log("Streamlink not available.")
             return
+            
         if self.compression_enabled and not self.check_ffmpeg_available():
             self.log("Compression enabled but FFmpeg not available. Please install FFmpeg.")
             return
+            
+        # Re-enable auto-restart when manually started
+        self.streams[name]['auto_restart'] = True
         self._start_stream_internal(name)
 
     def stop_stream(self, name):
         """Stop a running stream"""
         self.log(f"Stopping stream: {name}")
 
-        # Cancel restart
-        if self.streams[name]['restart_timer']:
-            self.streams[name]['restart_timer'].cancel() if hasattr(self.streams[name]['restart_timer'], 'cancel') \
-                else None
-            self.streams[name]['restart_timer'] = None
+        # Check if stream exists
+        if name not in self.streams:
+            self.log(f"Cannot stop {name}: stream not found")
+            return
+            
+        # For user-initiated stops, cancel any restart timer and disable auto-restart
+        # This ensures manual stops don't trigger automatic retries
+        if self.streams[name].get('restart_timer'):
+            try:
+                self.streams[name]['restart_timer'].cancel()
+                self.streams[name]['restart_timer'] = None
+                # Disable auto-restart when manually stopped
+                self.streams[name]['auto_restart'] = False
+            except Exception as e:
+                self.log(f"Error canceling timer: {e}")
 
         proc = self.streams[name]['process']
         if proc:
@@ -113,9 +133,12 @@ class DownloaderCore:
             except Exception as e:
                 self.log_streamlink(f"[{name}] Error stopping process: {e}")
 
-        self.streams[name]['state'] = 'Stopped'
         self.streams[name]['process'] = None
         self.streams[name]['restart_seconds'] = 0
+        # Only set state to Stopped if not in Restarting state
+        # This preserves the Restarting state for automatic retries
+        if self.streams[name]['state'] != 'Restarting':
+            self.streams[name]['state'] = 'Stopped'
         self.update_tree_item(name)
         self.log(f"Stream stopped: {name}")
 
@@ -167,6 +190,19 @@ class DownloaderCore:
 
     def schedule_restart(self, name, is_error_retry=False):
         """Schedule restart with dynamic delay"""
+        # Check if stream exists
+        if name not in self.streams:
+            self.log(f"Cannot schedule restart for {name}: stream not found")
+            return
+            
+        # Cancel any existing restart timer
+        if self.streams[name].get('restart_timer'):
+            try:
+                self.streams[name]['restart_timer'].cancel()
+            except Exception as e:
+                self.log(f"Error canceling timer for {name}: {e}")
+            self.streams[name]['restart_timer'] = None
+            
         if is_error_retry:
             # Error-based retry with progressive backoff
             delay_seconds = self.calculate_retry_delay(name)
@@ -182,11 +218,18 @@ class DownloaderCore:
         self.update_tree_item(name)
 
         def countdown():
-            if name not in self.streams or self.streams[name]['state'] != 'Restarting':
+            # Check if stream exists but don't check state - allow countdown to continue
+            # even if state changes temporarily
+            if name not in self.streams:
                 return
+                
             self.streams[name]['restart_seconds'] -= 1
             self.update_tree_item(name)
+            
             if self.streams[name]['restart_seconds'] <= 0:
+                # Ensure state is set to Restarting before starting
+                self.streams[name]['state'] = 'Restarting'
+                self.update_tree_item(name)
                 self._start_stream_internal(name)
             else:
                 # Use a shorter timer interval for more responsive UI updates
@@ -198,8 +241,15 @@ class DownloaderCore:
     def _start_stream_internal(self, name):
         """Actual start & monitoring logic"""
         def run():
+            # Make sure the stream exists before proceeding
+            if name not in self.streams:
+                self.log(f"Error: Cannot start {name}, stream not found")
+                return
+                
             # Reset restart seconds counter when starting a stream
             self.streams[name]['restart_seconds'] = 0
+            # Set state to Running
+            self.streams[name]['state'] = 'Running'
             self.update_tree_item(name)
             try:
                 url = self.streams[name]['url']
@@ -321,13 +371,16 @@ class DownloaderCore:
                     # This ensures streams always retry on error even if normal restart is disabled
                     self.schedule_restart(name, is_error_retry=True)
 
-                self.streams[name]['state'] = 'Stopped'
+                # Only update state to Stopped if we're not going to retry
+                if return_code == 0:
+                    self.streams[name]['state'] = 'Stopped'
+                    # Only schedule normal restart if successful completion
+                    if self.streams[name]['delay'] > 0:
+                        self.schedule_restart(name)
+                # For error cases, state will remain 'Restarting' from schedule_restart
+                
                 self.streams[name]['process'] = None
                 self.update_tree_item(name)
-
-                # Only schedule normal restart if not already scheduled for error retry
-                if self.streams[name]['delay'] > 0 and return_code == 0:
-                    self.schedule_restart(name)
 
             except Exception as e:
                 err = f"Error starting stream {name}: {e}"
@@ -336,6 +389,11 @@ class DownloaderCore:
                 self.streams[name]['state'] = 'Stopped'
                 self.streams[name]['process'] = None
                 self.update_tree_item(name)
+                
+                # Schedule error retry if auto_restart is enabled
+                if self.streams[name].get('auto_restart', True):
+                    self.log(f"Scheduling error retry due to startup error for {name}")
+                    self.schedule_restart(name, is_error_retry=True)
 
         threading.Thread(target=run, daemon=True).start()
 

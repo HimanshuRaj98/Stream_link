@@ -59,7 +59,7 @@ class StreamlinkDownloader(BaseUI):
         )
         self.downloader.output_folder = self.output_folder
         self.downloader.selected_quality = self.selected_quality.get()
-        
+
         # Initialize compression settings
         self.downloader.set_compression_settings(
             enabled=self.compression_enabled.get(),
@@ -172,8 +172,13 @@ class StreamlinkDownloader(BaseUI):
                     state = stream['state']
                     delay = stream['delay']
                     restart_time = stream.get('restart_seconds', 0)
-                    self.main_tab.tree.item(item, values=(state, delay, restart_time), tags=(state,))
+                    retry_count = stream.get('retry_count', 0)
+                    self.main_tab.tree.item(item, values=(state, delay, restart_time, retry_count), tags=(state,))
                     break
+        
+        # Update stream counters
+        if hasattr(self.main_tab, 'update_stream_counters'):
+            self.main_tab.update_stream_counters()
 
     def refresh_streams(self):
         """Refresh stream display"""

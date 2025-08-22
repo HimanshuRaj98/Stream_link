@@ -33,6 +33,8 @@ class MainTab:
         self.create_search_controls()
         self.create_content_area()
 
+
+
     def create_top_controls(self, parent):
         """Create top control buttons and settings"""
         top_controls = tk.Frame(parent, bg=AeroStyle.GLASS_BACKGROUND)
@@ -297,7 +299,7 @@ class MainTab:
         tree_container.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
         self.tree = self.components.create_styled_treeview(
-            tree_container, columns=('State', 'Delay', 'Restart')
+            tree_container, columns=('State', 'Delay', 'Restart', 'Retries')
         )
         
         # Configure headers with sorting
@@ -309,12 +311,15 @@ class MainTab:
                          command=lambda: self.sort_tree_column('Delay', False))
         self.tree.heading('Restart', text='🔄 Restart (s)',
                          command=lambda: self.sort_tree_column('Restart', False))
+        self.tree.heading('Retries', text='🔄 Retries',
+                         command=lambda: self.sort_tree_column('Retries', False))
 
         # Configure columns
-        self.tree.column('#0', width=250)
-        self.tree.column('State', width=100)
-        self.tree.column('Delay', width=100)
-        self.tree.column('Restart', width=100)
+        self.tree.column('#0', width=200)
+        self.tree.column('State', width=80)
+        self.tree.column('Delay', width=80)
+        self.tree.column('Restart', width=80)
+        self.tree.column('Retries', width=60)
 
         # Configure tags for state colors
         self.tree.tag_configure('Running', foreground='white', 
@@ -459,7 +464,7 @@ class MainTab:
             
             if self.downloader.add_stream(name, url, delay):
                 self.tree.insert('', 'end', text=name, 
-                               values=('Stopped', delay, '0'), 
+                               values=('Stopped', delay, '0', '0'), 
                                tags=('Stopped',))
                 added_count += 1
 
@@ -652,7 +657,7 @@ class MainTab:
                     
                     self.downloader.add_stream(name, url, delay)
                     self.tree.insert('', 'end', text=name, 
-                                   values=('Stopped', delay, '0'), 
+                                   values=('Stopped', delay, '0', '0'), 
                                    tags=('Stopped',))
 
                 self.logger.log_to_console(f"Download list loaded from {file_path}")
@@ -788,6 +793,69 @@ class MainTab:
         except Exception as e:
             self.logger.log_to_console(f"Error cutting from search: {e}")
 
+    def start_all_streams(self):
+        """Start all stopped streams"""
+        stopped_streams = []
+        for item in self.tree.get_children():
+            name = self.tree.item(item)['text']
+            if name in self.downloader.streams and self.downloader.streams[name]['state'] == 'Stopped':
+                stopped_streams.append(name)
+        
+        if not stopped_streams:
+            messagebox.showinfo("Info", "No stopped streams to start")
+            return
+        
+        # Update settings
+        self.downloader.selected_quality = self.base_ui.selected_quality.get()
+        self.downloader.set_compression_settings(
+            enabled=self.base_ui.compression_enabled.get(),
+            preset=self.base_ui.compression_preset.get(),
+            crf=self.base_ui.compression_crf.get(),
+            audio_bitrate=self.base_ui.compression_audio_bitrate.get()
+        )
+        
+        # Start all stopped streams
+        for name in stopped_streams:
+            self.downloader.start_stream(name)
+        
+        self.logger.log_to_console(f"Started {len(stopped_streams)} streams")
+
+    def stop_all_streams(self):
+        """Stop all running streams"""
+        running_streams = []
+        for item in self.tree.get_children():
+            name = self.tree.item(item)['text']
+            if name in self.downloader.streams and self.downloader.streams[name]['state'] == 'Running':
+                running_streams.append(name)
+        
+        if not running_streams:
+            messagebox.showinfo("Info", "No running streams to stop")
+            return
+        
+        # Stop all running streams
+        for name in running_streams:
+            self.downloader.stop_stream(name)
+        
+        self.logger.log_to_console(f"Stopped {len(running_streams)} streams")
+
+    def update_stream_counters(self):
+        """Update the stream counters in the header"""
+        try:
+            total_count = len(self.tree.get_children())
+            active_count = 0
+            
+            for item in self.tree.get_children():
+                name = self.tree.item(item)['text']
+                if name in self.downloader.streams and self.downloader.streams[name]['state'] == 'Running':
+                    active_count += 1
+            
+            if hasattr(self, 'active_count_label'):
+                self.active_count_label.config(text=f"Active: {active_count}")
+            if hasattr(self, 'total_count_label'):
+                self.total_count_label.config(text=f"Total: {total_count}")
+        except Exception as e:
+            self.logger.log_to_console(f"Error updating counters: {e}")
+
     def on_csv_double_click(self, event):
         """Handle double-click on CSV tree"""
         selected = self.csv_tree.selection()
@@ -798,7 +866,7 @@ class MainTab:
             
             if self.downloader.add_stream(name, url, delay):
                 self.tree.insert('', 'end', text=name, 
-                               values=('Stopped', delay, '0'), 
+                               values=('Stopped', delay, '0', '0'), 
                                tags=('Stopped',))
 
     def on_tree_double_click(self, event):

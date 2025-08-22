@@ -95,6 +95,14 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
 - **FFmpeg Integration**: Uses FFmpeg for high-quality compression
 - **UI Controls**: Easy-to-use compression controls in the main interface
 
+### **Smart Retry System:**
+- **Progressive Backoff**: Intelligent retry delays (30s → 1m → 2m → 5m → 10m → 30m max)
+- **Error Recovery**: Automatic retry on download failures with increasing delays
+- **Success Reset**: Retry count resets when streams start successfully
+- **Random Jitter**: ±10% delay variation to prevent synchronized retries
+- **Visual Tracking**: Retry count displayed in the downloads tree
+- **Server Protection**: Avoids hammering servers with exponential backoff
+
 ### **Recent Bug Fixes & Features:**
 - **✅ Fixed**: Compression options now remain visible when CSV is loaded
 - **✅ Fixed**: Tree view sorting now works properly for all columns
@@ -104,6 +112,11 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
 - **✅ Added**: Copy/paste functionality for stream names and URLs
 - **✅ Added**: Right-click paste in search box with context menu
 - **✅ Added**: Dynamic theme system with live switching
+- **✅ Added**: Progressive backoff retry system with smart delays
+- **✅ Added**: Modern card-based UI layout with organized panels
+- **✅ Added**: Stream counters and status indicators
+- **✅ Added**: Start/Stop all streams functionality
+- **✅ Added**: Retry count tracking and display
 
 ## **Recommendations**
 

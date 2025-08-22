@@ -26,7 +26,7 @@ class DownloaderCore:
         self.output_folder = os.path.join(os.path.expanduser("~"), "Documents", "YTS", "M3U8")
         os.makedirs(self.output_folder, exist_ok=True)
         self.selected_quality = "best"
-        
+
         # Compression settings
         self.compression_enabled = False
         self.compression_preset = "medium"  # ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
@@ -50,7 +50,10 @@ class DownloaderCore:
             'state': 'Stopped',
             'delay': delay,
             'restart_timer': None,
-            'restart_seconds': 0
+            'restart_seconds': 0,
+            'retry_count': 0,
+            'last_error_time': None,
+            'backoff_level': 0
         }
         self.log(f"Added stream: {name}")
         return True
@@ -149,7 +152,7 @@ class DownloaderCore:
 
                 self.log(f"Starting stream: {name} -> {output}")
                 self.log_streamlink(f"[{name}] Starting download with quality: {quality}")
-                
+
                 if self.compression_enabled:
                     self.log_streamlink(f"[{name}] Compression enabled: preset={self.compression_preset}, crf={self.compression_crf}")
                     # Use FFmpeg for real-time compression
@@ -169,11 +172,11 @@ class DownloaderCore:
                     self.log_streamlink(f"[{name}] FFmpeg command: {' '.join(ffmpeg_cmd)}")
                 else:
                     # Standard download without compression
-                    cmd = [
-                        'streamlink', '--loglevel', 'info', '--force',
-                        '--retry-streams', '3', '--retry-max', '3',
-                        url, quality, '-o', output
-                    ]
+                cmd = [
+                    'streamlink', '--loglevel', 'info', '--force',
+                    '--retry-streams', '3', '--retry-max', '3',
+                    url, quality, '-o', output
+                ]
 
                 if self.compression_enabled:
                     # Create piped process: streamlink | ffmpeg
@@ -203,14 +206,14 @@ class DownloaderCore:
                     proc = ffmpeg_proc
                     self.streams[name]['streamlink_proc'] = streamlink_proc
                 else:
-                    proc = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
 
                 self.streams[name]['process'] = proc
                 self.streams[name]['state'] = 'Running'
@@ -248,15 +251,21 @@ class DownloaderCore:
                 if return_code == 0:
                     self.log_streamlink(f"[{name}] Download completed successfully")
                     self.log(f"Download completed: {name}")
+                    # Reset retry count on successful completion
+                    self.reset_retry_count(name)
                 else:
                     self.log_streamlink(f"[{name}] Download failed - code: {return_code}")
                     self.log(f"Download failed: {name} (code: {return_code})")
+                    # Schedule error retry with progressive backoff
+                    if self.streams[name]['delay'] > 0:
+                        self.schedule_restart(name, is_error_retry=True)
 
                 self.streams[name]['state'] = 'Stopped'
                 self.streams[name]['process'] = None
                 self.update_tree_item(name)
 
-                if self.streams[name]['delay'] > 0:
+                # Only schedule normal restart if not already scheduled for error retry
+                if self.streams[name]['delay'] > 0 and return_code == 0:
                     self.schedule_restart(name)
 
             except Exception as e:
@@ -269,9 +278,46 @@ class DownloaderCore:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def schedule_restart(self, name):
-        """Countdown before restarting a stream"""
+    def calculate_retry_delay(self, name):
+        """Calculate dynamic retry delay based on error pattern"""
+        stream = self.streams[name]
+        retry_count = stream['retry_count']
+        
+        # Progressive backoff schedule
+        backoff_schedule = [30, 60, 120, 300, 600, 1800]  # 30s, 1m, 2m, 5m, 10m, 30m
+        max_backoff = 1800  # 30 minutes max
+        
+        if retry_count < len(backoff_schedule):
+            base_delay = backoff_schedule[retry_count]
+        else:
+            base_delay = max_backoff
+        
+        # Add random jitter (±10% of base delay)
+        import random
+        jitter = random.uniform(-0.1, 0.1) * base_delay
+        final_delay = max(5, base_delay + jitter)  # Minimum 5 seconds
+        
+        return int(final_delay)
+
+    def reset_retry_count(self, name):
+        """Reset retry count when stream starts successfully"""
+        if name in self.streams:
+            self.streams[name]['retry_count'] = 0
+            self.streams[name]['backoff_level'] = 0
+            self.log(f"Reset retry count for {name}")
+
+    def schedule_restart(self, name, is_error_retry=False):
+        """Schedule restart with dynamic delay"""
+        if is_error_retry:
+            # Error-based retry with progressive backoff
+            delay_seconds = self.calculate_retry_delay(name)
+            self.streams[name]['retry_count'] += 1
+            self.log(f"Scheduling error retry for {name} in {delay_seconds}s (attempt {self.streams[name]['retry_count']})")
+        else:
+            # Normal scheduled restart
         delay_seconds = self.streams[name]['delay'] * 60
+            self.log(f"Scheduling normal restart for {name} in {delay_seconds}s")
+        
         self.streams[name]['restart_seconds'] = delay_seconds
         self.streams[name]['state'] = 'Restarting'
         self.update_tree_item(name)

@@ -9,6 +9,10 @@ import csv
 import json
 import platform
 import subprocess
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from aero_style import AeroStyle
 from ui.ui_components import AeroComponents
 
@@ -80,13 +84,24 @@ class MainTab:
         delay_frame.pack(side='left', padx=5)
 
         self.components.create_styled_label(
-            delay_frame, "Default Delay (min):"
+            delay_frame, "Normal Restart Delay (min):"
         ).pack(side='left')
 
         delay_entry = self.components.create_styled_entry(
             delay_frame, textvariable=self.base_ui.default_delay, width=5
         )
         delay_entry.pack(side='left', padx=5)
+        
+        # Add tooltip for delay setting
+        delay_info_label = self.components.create_styled_label(
+            delay_frame, "ℹ️", 'secondary'
+        )
+        delay_info_label.pack(side='left', padx=2)
+        self.create_tooltip(delay_info_label,
+            "Default delay for normal restarts (after successful downloads):\n"
+            "• This is the delay between successful downloads\n"
+            "• Error retries use progressive backoff (30s → 1m → 2m → 5m → 10m → 30m)\n"
+            "• Set to 0 to disable automatic restarts")
 
         # Quality selector
         quality_frame = tk.Frame(right_controls, bg=AeroStyle.GLASS_BACKGROUND)
@@ -358,7 +373,7 @@ class MainTab:
             ("⏹️ Stop", self.stop_stream),
             ("🗑️ Remove", self.remove_stream),
             ("🔄 Restart", self.restart_stream),
-            ("⏰ Set Delay", self.set_delay)
+            ("⏰ Set Normal Restart Delay", self.set_delay)
         ]
         
         for text, command in menu_items:
@@ -592,13 +607,17 @@ class MainTab:
                 self.downloader.restart_stream(name)
 
     def set_delay(self):
-        """Set delay for selected streams"""
+        """Set normal restart delay for selected streams"""
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select streams to set delay")
             return
 
-        delay = simpledialog.askfloat("Set Delay", "Enter delay in minutes:", minvalue=0)
+        delay = simpledialog.askfloat("Set Normal Restart Delay", 
+                                    "Enter normal restart delay in minutes (after successful downloads):\n\n"
+                                    "Note: Error retries use progressive backoff automatically.\n"
+                                    "Set to 0 to disable automatic restarts.", 
+                                    minvalue=0)
         if delay is not None:
             for item in selected:
                 name = self.tree.item(item)['text']

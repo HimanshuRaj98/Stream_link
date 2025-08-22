@@ -4,6 +4,10 @@ Log tab with dual logging system for application and streamlink logs
 """
 import tkinter as tk
 from tkinter import ttk
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from aero_style import AeroStyle
 from ui.ui_components import AeroComponents
 

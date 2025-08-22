@@ -5,6 +5,9 @@ CSV & Video Tools tab with file operations and video processing
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from aero_style import AeroStyle
 from ui.ui_components import AeroComponents
 

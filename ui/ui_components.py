@@ -4,6 +4,10 @@ Reusable UI components with Aero styling
 """
 import tkinter as tk
 from tkinter import ttk
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from aero_style import AeroStyle
 
 class AeroComponents:

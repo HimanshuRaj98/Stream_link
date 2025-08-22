@@ -5,6 +5,9 @@ Base UI class with window setup and styling
 import tkinter as tk
 from tkinter import ttk
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from aero_style import AeroStyle
 from ui.ui_components import AeroComponents
 

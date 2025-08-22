@@ -104,6 +104,9 @@ Your **Streamlink Downloader - Aero Edition** is a sophisticated desktop applica
 - **Server Protection**: Avoids hammering servers with exponential backoff
 - **Immediate Retry**: Quick retry for short errors (buffer under 15s, quick reconnect)
 - **Dynamic Delays**: Avoids fixed +1 min delays, uses intelligent backoff instead
+- **Dual Delay System**: 
+  - Normal restart delay: User-configurable delay between successful downloads
+  - Error retry delay: Automatic progressive backoff for failed downloads
 
 ### **Recent Bug Fixes & Features:**
 - **✅ Fixed**: Compression options now remain visible when CSV is loaded

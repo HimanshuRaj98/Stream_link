@@ -1,0 +1,248 @@
+# downloader.py
+"""
+DownloaderCore - handles Streamlink download operations and stream state management.
+Separated from UI so it can be reused in CLI or automated scripts.
+"""
+
+import os
+import subprocess
+import threading
+import time
+from datetime import datetime
+
+class DownloaderCore:
+    def __init__(self, logger=None, ui_updater=None, status_callback=None):
+        """
+        :param logger: Logger instance or object with log_to_console() & log_streamlink() methods
+        :param ui_updater: function(name) to refresh UI treeview item
+        :param status_callback: function(message) to update status bar
+        """
+        self.log = logger.log_to_console if logger else print
+        self.log_streamlink = logger.log_streamlink if logger else print
+        self.update_tree_item = ui_updater if ui_updater else lambda name: None
+        self.update_status = status_callback if status_callback else lambda msg: None
+
+        self.streams = {}
+        self.output_folder = os.path.join(os.path.expanduser("~"), "Documents", "YTS", "M3U8")
+        os.makedirs(self.output_folder, exist_ok=True)
+        self.selected_quality = "best"
+
+    def add_stream(self, name, url, delay=1, test_url_callback=None):
+        """Add a stream to the active downloads list"""
+        if name in self.streams:
+            self.log(f"Stream already exists: {name}")
+            return False
+
+        # Optional URL test
+        if test_url_callback and not url.startswith('file://') and not os.path.exists(url):
+            if not test_url_callback(url):
+                self.log(f"Warning: URL may not be accessible: {url}")
+
+        self.streams[name] = {
+            'url': url,
+            'process': None,
+            'state': 'Stopped',
+            'delay': delay,
+            'restart_timer': None,
+            'restart_seconds': 0
+        }
+        self.log(f"Added stream: {name}")
+        return True
+
+    def get_selected_streams(self, names):
+        """Filter streams from given names list"""
+        return [n for n in names if n in self.streams]
+
+    def start_stream(self, name):
+        """Start a single stream"""
+        if self.streams[name]['state'] == 'Running':
+            return
+        if not self.check_streamlink_available():
+            self.log("Streamlink not available.")
+            return
+        self._start_stream_internal(name)
+
+    def stop_stream(self, name):
+        """Stop a running stream"""
+        self.log(f"Stopping stream: {name}")
+
+        # Cancel restart
+        if self.streams[name]['restart_timer']:
+            self.streams[name]['restart_timer'].cancel() if hasattr(self.streams[name]['restart_timer'], 'cancel') \
+                else None
+            self.streams[name]['restart_timer'] = None
+
+        proc = self.streams[name]['process']
+        if proc:
+            try:
+                self.log_streamlink(f"[{name}] Terminating process...")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.log_streamlink(f"[{name}] Force killing process...")
+                    proc.kill()
+                    proc.wait()
+                self.log_streamlink(f"[{name}] Process stopped")
+            except Exception as e:
+                self.log_streamlink(f"[{name}] Error stopping process: {e}")
+
+        self.streams[name]['state'] = 'Stopped'
+        self.streams[name]['process'] = None
+        self.streams[name]['restart_seconds'] = 0
+        self.update_tree_item(name)
+        self.log(f"Stream stopped: {name}")
+
+    def restart_stream(self, name):
+        """Restart a stream after stopping it"""
+        self.stop_stream(name)
+        threading.Timer(2, lambda: self._start_stream_internal(name)).start()
+
+    def set_delay(self, name, delay):
+        """Set restart delay for a stream in minutes"""
+        self.streams[name]['delay'] = max(0, delay)
+        self.update_tree_item(name)
+
+    def _start_stream_internal(self, name):
+        """Actual start & monitoring logic"""
+        def run():
+            try:
+                url = self.streams[name]['url']
+                quality = self.selected_quality
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                safe_name = ''.join(c for c in name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                folder = os.path.join(self.output_folder, safe_name)
+                os.makedirs(folder, exist_ok=True)
+                output = os.path.join(folder, f"{safe_name}_{timestamp}.mp4")
+
+                self.log(f"Starting stream: {name} -> {output}")
+                self.log_streamlink(f"[{name}] Starting download with quality: {quality}")
+
+                cmd = [
+                    'streamlink', '--loglevel', 'info', '--force',
+                    '--retry-streams', '3', '--retry-max', '3',
+                    url, quality, '-o', output
+                ]
+
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+
+                self.streams[name]['process'] = proc
+                self.streams[name]['state'] = 'Running'
+                self.update_tree_item(name)
+
+                def log_output():
+                    try:
+                        while proc.poll() is None:
+                            line = proc.stdout.readline()
+                            if line:
+                                self.log_streamlink(f"[{name}] {line.strip()}")
+                            else:
+                                time.sleep(0.1)
+                        # flush remaining output
+                        remaining_output = proc.stdout.read()
+                        if remaining_output:
+                            for line in remaining_output.splitlines():
+                                self.log_streamlink(f"[{name}] {line.strip()}")
+                    except Exception as e:
+                        self.log_streamlink(f"[{name}] Logging error: {e}")
+
+                threading.Thread(target=log_output, daemon=True).start()
+
+                return_code = proc.wait()
+                if return_code == 0:
+                    self.log_streamlink(f"[{name}] Download completed successfully")
+                    self.log(f"Download completed: {name}")
+                else:
+                    self.log_streamlink(f"[{name}] Download failed - code: {return_code}")
+                    self.log(f"Download failed: {name} (code: {return_code})")
+
+                self.streams[name]['state'] = 'Stopped'
+                self.streams[name]['process'] = None
+                self.update_tree_item(name)
+
+                if self.streams[name]['delay'] > 0:
+                    self.schedule_restart(name)
+
+            except Exception as e:
+                err = f"Error starting stream {name}: {e}"
+                self.log(err)
+                self.log_streamlink(f"[{name}] {err}")
+                self.streams[name]['state'] = 'Stopped'
+                self.streams[name]['process'] = None
+                self.update_tree_item(name)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def schedule_restart(self, name):
+        """Countdown before restarting a stream"""
+        delay_seconds = self.streams[name]['delay'] * 60
+        self.streams[name]['restart_seconds'] = delay_seconds
+        self.streams[name]['state'] = 'Restarting'
+        self.update_tree_item(name)
+
+        def countdown():
+            if name not in self.streams or self.streams[name]['state'] != 'Restarting':
+                return
+            self.streams[name]['restart_seconds'] -= 1
+            self.update_tree_item(name)
+            if self.streams[name]['restart_seconds'] <= 0:
+                self._start_stream_internal(name)
+            else:
+                self.streams[name]['restart_timer'] = threading.Timer(1, countdown)
+                self.streams[name]['restart_timer'].start()
+
+        countdown()
+
+    def check_streamlink_available(self):
+        """Check if Streamlink CLI is installed and accessible"""
+        try:
+            result = subprocess.run(['streamlink', '--version'],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                self.log(f"Streamlink available: {result.stdout.strip()}")
+                return True
+            else:
+                self.log("Streamlink not working properly")
+                return False
+        except Exception as e:
+            self.log(f"Error checking Streamlink: {e}")
+            return False
+
+    def update_download_progress(self, name, output_file):
+        """Log current file size for a running download"""
+        try:
+            if os.path.exists(output_file):
+                size = self.get_file_size(output_file)
+                self.log_streamlink(f"[{name}] Current file size: {size}")
+        except Exception as e:
+            self.log_streamlink(f"[{name}] Progress error: {e}")
+
+    def get_file_size(self, file_path):
+        """Human-readable file size"""
+        try:
+            size = os.path.getsize(file_path)
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if size < 1024.0:
+                    return f"{size:.1f} {unit}"
+                size /= 1024.0
+            return f"{size:.1f} TB"
+        except Exception:
+            return "Unknown"
+
+    def test_stream_url(self, url):
+        """Quickly check if Streamlink can handle URL"""
+        try:
+            result = subprocess.run(['streamlink', '--can-handle-url', url],
+                                    capture_output=True, text=True, timeout=30)
+            return result.returncode == 0
+        except Exception as e:
+            self.log(f"Error testing URL {url}: {e}")
+            return False

@@ -59,7 +59,7 @@ class StreamlinkDownloader(BaseUI):
         )
         self.downloader.output_folder = self.output_folder
         self.downloader.selected_quality = self.selected_quality.get()
-        
+
         # Initialize compression settings
         self.downloader.set_compression_settings(
             enabled=self.compression_enabled.get(),
@@ -117,6 +117,9 @@ class StreamlinkDownloader(BaseUI):
         self.log_tab = LogTab(self.log_tab_frame, self, self.logger)
         self.csv_tools_tab = CSVToolsTab(self.csv_tools_tab_frame, self, self.csv_tools, self.video_tools)
         self.settings_tab = SettingsTab(self.settings_tab_frame, self, self.logger)
+        
+        # Make settings tab accessible to main tab for auto-start functionality
+        self.main_tab.settings_tab = self.settings_tab
 
     def create_title_bar(self, parent):
         """Create title bar with enhanced styling"""
@@ -169,8 +172,13 @@ class StreamlinkDownloader(BaseUI):
                     state = stream['state']
                     delay = stream['delay']
                     restart_time = stream.get('restart_seconds', 0)
-                    self.main_tab.tree.item(item, values=(state, delay, restart_time), tags=(state,))
+                    retry_count = stream.get('retry_count', 0)
+                    self.main_tab.tree.item(item, values=(state, delay, restart_time, retry_count), tags=(state,))
                     break
+        
+        # Update stream counters
+        if hasattr(self.main_tab, 'update_stream_counters'):
+            self.main_tab.update_stream_counters()
 
     def refresh_streams(self):
         """Refresh stream display"""
